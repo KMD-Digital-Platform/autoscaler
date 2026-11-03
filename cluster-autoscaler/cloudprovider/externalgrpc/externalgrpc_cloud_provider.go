@@ -18,8 +18,6 @@ package externalgrpc
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -361,32 +359,11 @@ func newExternalGrpcCloudProviderClient(config []byte) (protos.CloudProviderClie
 		klog.V(5).Info("No certs specified in external gRPC provider config, using insecure mode")
 		dialOpt = grpc.WithInsecure()
 	} else {
-		certFile, err := ioutil.ReadFile(yamlConfig.Cert)
+		tlsConfig, err := newReloadingTLSConfig(host, yamlConfig.Cert, yamlConfig.Key, yamlConfig.Cacert)
 		if err != nil {
-			return nil, 0, fmt.Errorf("could not open Cert configuration file %q: %v", yamlConfig.Cert, err)
+			return nil, 0, err
 		}
-		keyFile, err := ioutil.ReadFile(yamlConfig.Key)
-		if err != nil {
-			return nil, 0, fmt.Errorf("could not open Key configuration file %q: %v", yamlConfig.Key, err)
-		}
-		cacertFile, err := ioutil.ReadFile(yamlConfig.Cacert)
-		if err != nil {
-			return nil, 0, fmt.Errorf("could not open Cacert configuration file %q: %v", yamlConfig.Cacert, err)
-		}
-		cert, err := tls.X509KeyPair(certFile, keyFile)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to parse cert key pair: %v", err)
-		}
-		certPool := x509.NewCertPool()
-		ok := certPool.AppendCertsFromPEM(cacertFile)
-		if !ok {
-			return nil, 0, fmt.Errorf("failed to parse ca: %v", err)
-		}
-		transportCreds := credentials.NewTLS(&tls.Config{
-			ServerName:   host,
-			Certificates: []tls.Certificate{cert},
-			RootCAs:      certPool,
-		})
+		transportCreds := credentials.NewTLS(tlsConfig)
 		dialOpt = grpc.WithTransportCredentials(transportCreds)
 	}
 	conn, err := grpc.Dial(yamlConfig.Address, dialOpt)
